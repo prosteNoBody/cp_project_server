@@ -1,0 +1,5 @@
+node_modules/
+dummydata.json
+dummyuser.json
+.idea
+keys.json
