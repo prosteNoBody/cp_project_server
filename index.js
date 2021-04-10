@@ -1,4 +1,5 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const session = require('express-session');
 const cors = require('cors');
 const MongoDBStore = require('connect-mongodb-session')(session);
@@ -55,8 +56,8 @@ passport.deserializeUser((id, done) => {
         });
 });
 passport.use(new SteamStrategy({
-    returnURL: "http://localhost:3000/return",
-    realm: "http://localhost:3000",
+    returnURL: "http://localhost:3000/login/return",
+    realm: "http://localhost:3000/",
     apiKey: keys.steamApi,
 }, (identifier, profile, done) => {
     /**
@@ -102,53 +103,47 @@ const indexUsers = (users) => {
 };
 
 const app = express();
-app.use(cors({
-    preflightContinue: true,
-    credentials: true,
-}));
-app.use(session({
-    name: 'session_id',
-    secret: 'secret_key',
-    resave: true,
-    saveUninitialized: true,
-    rolling: true,
-    cookie: {
-        maxAge: 900000
-    },
-    store: store
-}));
+app.use(cors());
+app.use(express.json());
 app.use(passport.initialize());
 app.use(passport.session());
 
-app.get(/^\/((login)|(return))$/, passport.authenticate('steam', { failureRedirect: '/' }), (req, res) => {
-    res.redirect("/success");
-});
+app.post('/token', (req, res) => {
+    const token = req.body.token;
+    jwt.verify(token, keys.tokenSecretKey, (err) => {
+        if (err) return res.send(res.send({ success: false }));
+        res.send({ success: true });
+    });
+})
 
-app.get('/success', (req, res) => {
-    res.send("successfully log-in");
-});
+app.get('/login', passport.authenticate('steam'));
 
-app.get('/logout', (req, res) => {
-    req.logout();
-    res.send("successfully log-out");
-});
+app.get('/login/return', passport.authenticate('steam', { failureRedirect: '/' }), (req, res) => {
+    const token = jwt.sign({ steamid: req.user.steamid }, keys.tokenSecretKey);
+    res.redirect('http://192.168.0.113:8080/profile?token=' + token);
+})
 
 app.use((req, res, next) => {
-    if (!req.user) {
-        return res.send({ requireLogIn: true });
-    }
-    next();
+    const authHeader = req.header('authorization');
+    const token = authHeader && authHeader.split(' ')[1];
+    if (!token) return res.sendStatus(401);
+
+    jwt.verify(token, keys.tokenSecretKey, (err, payload) => {
+        if (err) return res.sendStatus(403);
+        req.user = payload.steamid;
+        next();
+    });
 })
 
 app.get('/bought', (req, res) => {
-    res.send(dummyData);
-    return;
+    //res.send(dummyData);
+    //return;
     try {
-        Offer.find({ buyer_id: req.user.steamid }).then(offers => {
+        Offer.find({ buyer_id: req.user }).then(offers => {
             manager.getInventoryContents(570, 2, true, (error, inventory) => {
                 if (error || typeof inventory == 'undefined') {
-                    console.log(error);
-                    res.send({ error: "Server error" });
+                    // console.log(error);
+                    return res.sendStatus(500);
                 }
                 inventory = inventory.map(item => {
                     if (!item.descriptions.length) {
@@ -176,8 +171,8 @@ app.get('/bought', (req, res) => {
                     for (let offer of offers) {
                         resOffer.push({
                             id: offer.id,
-                            is_mine: offer.owner_id === req.user.steamid,
-                            is_buyer: offer.buyer_id === req.user.steamid,
+                            is_mine: offer.owner_id === req.user,
+                            is_buyer: offer.buyer_id === req.user,
                             owner: users[offer.owner_id],
                             buyer_id: offer.buyer_id,
                             trade_id: offer.trade_id,
@@ -197,14 +192,14 @@ app.get('/bought', (req, res) => {
     }
 })
 app.get('/owned', (req, res) => {
-    res.send(dummyData);
-    return;
+    //res.send(dummyData);
+    //return;
     try {
-        Offer.find({ owner_id: req.user.steamid }).then(offers => {
+        Offer.find({ owner_id: req.user }).then(offers => {
             manager.getInventoryContents(570, 2, true, (error, inventory) => {
                 if (error || typeof inventory == 'undefined') {
-                    console.log(error);
-                    res.send({ error: "Server error" });
+                    // console.log(error);
+                    return res.sendStatus(500);
                 }
                 inventory = inventory.map(item => {
                     if (!item.descriptions.length) {
@@ -232,8 +227,8 @@ app.get('/owned', (req, res) => {
                     for (let offer of offers) {
                         resOffer.push({
                             id: offer.id,
-                            is_mine: offer.owner_id === req.user.steamid,
-                            is_buyer: offer.buyer_id === req.user.steamid,
+                            is_mine: offer.owner_id === req.user,
+                            is_buyer: offer.buyer_id === req.user,
                             owner: users[offer.owner_id],
                             buyer_id: offer.buyer_id,
                             trade_id: offer.trade_id,
@@ -253,12 +248,14 @@ app.get('/owned', (req, res) => {
     }
 })
 app.get('/user', (req, res) => {
-    res.send(dummyUser);
-    return;
-    res.send({
-        name: req.user.name,
-        avatar: req.user.avatar,
-        credit: req.user.credit,
+    //res.send(dummyUser);
+    //return;
+    User.findOne({ steamid: req.user }).then(user => {
+        res.send({
+            name: user.name,
+            avatar: user.avatar,
+            credit: user.credit,
+        })
     })
 })
 
@@ -280,7 +277,7 @@ client.on('webSession', (id, session) => {
     manager.setCookies(session);
     community.setCookies(session);
 });
-app.listen(3000, err => {
+app.listen(process.argv[2] || 3000, err => {
     if (err) throw err;
     console.log("EXPRESS SERVER - ONLINE");
 })
