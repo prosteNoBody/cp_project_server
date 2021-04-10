@@ -15,6 +15,8 @@ const keys = require('./keys.json');
 const dummyData = require('./dummydata.json');
 const dummyUser = require('./dummyuser.json');
 
+const IP = process.argv[2] || '192.168.0.133';
+
 const store = new MongoDBStore({
     uri: keys.mongoUrl,
     collection: 'mobileApp'
@@ -56,8 +58,8 @@ passport.deserializeUser((id, done) => {
         });
 });
 passport.use(new SteamStrategy({
-    returnURL: "http://localhost:3000/login/return",
-    realm: "http://localhost:3000/",
+    returnURL: `http://${IP}:3000/login/return`,
+    realm: `http://${IP}:3000/`,
     apiKey: keys.steamApi,
 }, (identifier, profile, done) => {
     /**
@@ -120,7 +122,7 @@ app.get('/login', passport.authenticate('steam'));
 
 app.get('/login/return', passport.authenticate('steam', { failureRedirect: '/' }), (req, res) => {
     const token = jwt.sign({ steamid: req.user.steamid }, keys.tokenSecretKey);
-    res.redirect('http://192.168.0.113:8080/profile?token=' + token);
+    res.redirect('http://' + IP + ':8080/profile?token=' + token);
 })
 
 app.use((req, res, next) => {
@@ -277,7 +279,7 @@ client.on('webSession', (id, session) => {
     manager.setCookies(session);
     community.setCookies(session);
 });
-app.listen(process.argv[2] || 3000, err => {
+app.listen(3000, err => {
     if (err) throw err;
     console.log("EXPRESS SERVER - ONLINE");
 })
